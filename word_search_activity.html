@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESL Word Search</title>
+
+<!--
+  ESL Activity — Layer 1+2 + Layer 3: word_search
+  activity_type: "word_search"
+  No algorithmic word placement — grid & positions provided via JSON.
+  Mobile drag via Pointer Events + setPointerCapture.
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,700;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* ── Design Tokens ─────────────────────────────────────────── */
+  :root {
+    --esl-color-selected: #fbbf24;          /* amber — ongoing selection */
+    --esl-color-correct:  #34d399;          /* emerald — found word */
+    --esl-color-correct-dark: #059669;
+    --esl-color-hint: #a78bfa;              /* soft violet */
+    --esl-bg:             #faf7f2;
+    --esl-surface:        #ffffff;
+    --esl-ink:            #1c1917;
+    --esl-ink-muted:      #78716c;
+    --esl-accent:         #e11d48;          /* rose — title accent */
+    --esl-accent-2:       #7c3aed;          /* violet — difficulty badge */
+    --esl-border:         #e7e5e4;
+    --esl-cell-size:      clamp(22px, 3.2vw, 34px);
+    --esl-font-grid:      'DM Mono', monospace;
+    --esl-font-ui:        'Fraunces', serif;
+    --esl-radius:         12px;
+    --esl-shadow:         0 4px 24px rgba(0,0,0,.08);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--esl-font-ui);
+    background: var(--esl-bg);
+    color: var(--esl-ink);
+    min-height: 100vh;
+    padding: 24px 16px 48px;
+  }
+
+  /* ── Layout ────────────────────────────────────────────────── */
+  .activity-wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    grid-template-rows: auto 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+
+  @media (max-width: 860px) {
+    .activity-wrap {
+      grid-template-columns: 1fr;
+    }
+    .sidebar { order: -1; }
+  }
+
+  /* ── Header ────────────────────────────────────────────────── */
+  .header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .header h1 {
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .header h1 span { color: var(--esl-accent); font-style: italic; }
+
+  .badge-difficulty {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--esl-accent-2);
+    color: #fff;
+    font-size: .75rem;
+    font-family: var(--esl-font-grid);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-weight: 500;
+  }
+
+  /* ── Hint ───────────────────────────────────────────────────── */
+  .hint-wrap {
+    grid-column: 1 / -1;
+  }
+
+  details.hint {
+    background: #fff8e1;
+    border: 1.5px solid #fde68a;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: .9rem;
+  }
+  details.hint summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: #92400e;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  details.hint summary::before { content: '💡'; }
+  details.hint p { margin-top: 8px; color: #78350f; line-height: 1.5; }
+
+  /* ── Grid container ─────────────────────────────────────────── */
+  .grid-wrap {
+    background: var(--esl-surface);
+    border-radius: var(--esl-radius);
+    box-shadow: var(--esl-shadow);
+    padding: 20px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #wordsearch-grid {
+    display: inline-grid;
+    /* columns set dynamically via JS */
+    gap: 2px;
+    user-select: none;
+    -webkit-user-select: none;
+    /* CRITICAL: disable touch scroll while drag-selecting */
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  /* ── Cell ───────────────────────────────────────────────────── */
+  .cell {
+    width:  var(--esl-cell-size);
+    height: var(--esl-cell-size);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--esl-font-grid);
+    font-size: calc(var(--esl-cell-size) * 0.48);
+    font-weight: 500;
+    text-transform: uppercase;
+    border-radius: 5px;
+    background: var(--esl-bg);
+    color: var(--esl-ink-muted);
+    transition: background .1s, color .1s, transform .08s;
+    position: relative;
+  }
+
+  .cell:hover { background: #f5f5f4; }
+
+  /* ongoing selection */
+  .cell.state-selected {
+    background: var(--esl-color-selected);
+    color: var(--esl-ink);
+    transform: scale(1.08);
+    z-index: 1;
+    font-weight: 700;
+  }
+
+  /* found word — persists */
+  .cell.state-correct {
+    background: var(--esl-color-correct);
+    color: #fff;
+    font-weight: 700;
+    transform: scale(1.0);
+  }
+
+  /* correct wins over selected if both */
+  .cell.state-correct.state-selected {
+    background: var(--esl-color-correct);
+  }
+
+  .cell.state-hint {
+    background: var(--esl-color-hint, #a78bfa);   /* soft violet */
+    color: #fff;
+    font-weight: 700;
+    transform: scale(1.06);
+    transition: background .15s, transform .15s;
+    z-index: 2;
+  }
+  /* correct always wins over hint */
+  .cell.state-correct.state-hint {
+    background: var(--esl-color-correct);
+  }
+
+  /* ── Sidebar ────────────────────────────────────────────────── */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .sidebar-card {
+    background: var(--esl-surface);
+    border-radius: var(--esl-radius);
+    box-shadow: var(--esl-shadow);
+    padding: 18px;
+  }
+
+  .sidebar-card h2 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--esl-ink);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .progress-text {
+    font-family: var(--esl-font-grid);
+    font-size: .8rem;
+    color: var(--esl-ink-muted);
+  }
+
+  #word-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 65vh;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  #word-list::-webkit-scrollbar { width: 4px; }
+  #word-list::-webkit-scrollbar-thumb { background: var(--esl-border); border-radius: 4px; }
+
+  .word-item {
+    font-size: .82rem;
+    font-family: var(--esl-font-grid);
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1.5px solid var(--esl-border);
+    background: var(--esl-bg);
+    color: var(--esl-ink);
+    transition: all .2s;
+    cursor: default;
+    line-height: 1.3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .word-item.word-found {
+    background: #ecfdf5;
+    border-color: var(--esl-color-correct-dark);
+    color: var(--esl-color-correct-dark);
+    text-decoration: line-through;
+    text-decoration-color: var(--esl-color-correct-dark);
+    opacity: .75;
+  }
+
+  .word-item.revealing {
+    border-left: 3px solid #a78bfa;
+    transition: border-left .2s;
+  }
+
+  .reveal-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0 2px;
+    font-size: 14px;
+    opacity: 0.35;
+    cursor: pointer;
+    line-height: 1;
+    transition: opacity .15s;
+  }
+  .reveal-btn:hover { opacity: 0.75; }
+  .word-found .reveal-btn { display: none; }
+
+
+  /* ── Live feedback region ───────────────────────────────────── */
+  #feedback-live {
+    min-height: 36px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: .88rem;
+    font-family: var(--esl-font-grid);
+    background: transparent;
+    transition: all .3s;
+  }
+
+  #feedback-live.show-correct {
+    background: #ecfdf5;
+    color: var(--esl-color-correct-dark);
+    border: 1.5px solid var(--esl-color-correct);
+    animation: pop .3s ease;
+  }
+
+  #feedback-live.show-complete {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1.5px solid #fbbf24;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  @keyframes pop {
+    0%   { transform: scale(.96); }
+    60%  { transform: scale(1.03); }
+    100% { transform: scale(1); }
+  }
+
+  /* ── Media block ────────────────────────────────────────────── */
+  .media-wrap img { max-width: 100%; border-radius: 8px; }
+  .media-wrap audio { width: 100%; margin-top: 8px; }
+
+</style>
+</head>
+<body>
+
+<div class="activity-wrap">
+
+  <!-- Header (difficulty + title rendered by JS) -->
+  <header class="header" id="activity-header"></header>
+
+  <!-- Hint (rendered by JS if present) -->
+  <div class="hint-wrap" id="hint-wrap"></div>
+
+  <!-- Grid -->
+  <main class="grid-wrap">
+    <!--
+      #wordsearch-grid: CSS Grid, columns set dynamically.
+      aria-label set by JS. touch-action:none blocks scroll during drag.
+      Cells: role="gridcell", data-row, data-col.
+    -->
+    <div
+      id="wordsearch-grid"
+      role="grid"
+      aria-label="Word search grid"
+    ></div>
+  </main>
+
+  <!-- Sidebar: word list + feedback -->
+  <aside class="sidebar">
+    <!-- Media block (optional) -->
+    <div id="media-wrap" class="media-wrap sidebar-card" style="display:none"></div>
+
+    <div class="sidebar-card">
+      <h2>
+        Find the phrases
+        <span class="progress-text" id="progress-label">0 / 0</span>
+      </h2>
+      <ul id="word-list" role="list" aria-label="Phrases to find"></ul>
+    </div>
+
+    <!-- aria-live region for screen readers + visual feedback -->
+    <div
+      id="feedback-live"
+      aria-live="polite"
+      aria-atomic="true"
+      role="status"
+    ></div>
+  </aside>
+
+</div>
+
+<!-- ──────────────────────────────────────────────────────────── -->
+<!--  DATA  — paste / load your JSON here                        -->
+<!-- ──────────────────────────────────────────────────────────── -->
+<script>
+/* =========================================================
+   ACTIVITY ENVELOPE v1.2.0
+   Supports optional fields: hint, difficulty, media
+   word_positions: provided manually — no algorithmic placement
+   ========================================================= */
+const activityData = {
+  activity_type: "word_search",
+  title: "Word Search",
+  difficulty: "intermediate",
+  hint: "All phrases are common English collocations — verbs + nouns. Words are hidden horizontally and vertically in the grid. Drag to select!",
+  media: null,
+  grid: [
+    ["S", "W", "I", "M", "I", "N", "T", "H", "E", "S", "E", "A", "O", "B", "R", "D", "K", "Y", "P", "F", "J", "E", "L", "G", "C", "Q", "I", "W", "W", "V"],
+    ["L", "G", "N", "A", "P", "V", "E", "C", "Z", "X", "M", "Y", "U", "N", "A", "W", "A", "H", "C", "I", "T", "A", "K", "E", "A", "P", "H", "O", "A", "O"],
+    ["J", "H", "T", "F", "O", "I", "H", "S", "J", "Z", "B", "F", "A", "L", "I", "T", "A", "L", "K", "T", "O", "A", "F", "R", "I", "E", "N", "D", "I", "N"],
+    ["C", "A", "L", "L", "O", "R", "P", "H", "O", "N", "E", "A", "T", "A", "X", "I", "C", "W", "R", "F", "D", "B", "U", "Y", "A", "P", "I", "Z", "Z", "A"],
+    ["S", "I", "H", "E", "L", "P", "S", "O", "M", "E", "B", "O", "D", "Y", "G", "E", "M", "R", "H", "T", "S", "J", "K", "L", "Z", "X", "C", "V", "B", "F"],
+    ["I", "N", "M", "P", "A", "I", "N", "T", "A", "P", "I", "C", "T", "U", "R", "E", "S", "R", "A", "C", "E", "P", "D", "F", "G", "H", "J", "K", "L", "O"],
+    ["N", "G", "F", "O", "R", "G", "E", "T", "S", "O", "M", "E", "B", "O", "D", "Y", "S", "N", "A", "M", "E", "L", "M", "N", "B", "V", "C", "X", "Z", "R"],
+    ["G", "A", "G", "A", "H", "W", "Q", "A", "M", "R", "U", "N", "A", "R", "A", "C", "E", "B", "V", "C", "X", "Z", "A", "S", "D", "F", "G", "H", "J", "A"],
+    ["A", "S", "N", "I", "E", "A", "E", "S", "W", "T", "X", "Y", "Z", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "A", "S", "D", "F", "G", "H", "B"],
+    ["S", "O", "T", "E", "L", "L", "S", "O", "M", "E", "B", "O", "D", "Y", "A", "S", "E", "C", "R", "E", "T", "X", "C", "V", "B", "N", "M", "K", "L", "U"],
+    ["O", "N", "A", "S", "N", "V", "R", "E", "M", "E", "M", "B", "E", "R", "S", "O", "M", "E", "B", "O", "D", "Y", "S", "N", "A", "M", "E", "O", "I", "S"],
+    ["N", "G", "N", "N", "O", "B", "T", "L", "U", "Y", "T", "R", "E", "W", "Q", "P", "O", "I", "U", "Y", "T", "R", "E", "W", "Q", "A", "S", "D", "F", "G"],
+    ["G", "A", "O", "D", "A", "N", "C", "E", "T", "H", "E", "T", "A", "N", "G", "O", "K", "J", "H", "G", "F", "D", "S", "A", "Z", "X", "C", "V", "B", "N"],
+    ["Y", "R", "L", "Q", "H", "T", "J", "K", "E", "S", "W", "F", "D", "C", "A", "X", "M", "E", "E", "T", "A", "F", "R", "I", "E", "N", "D", "Y", "T", "R"],
+    ["T", "K", "Z", "B", "M", "A", "N", "V", "X", "D", "S", "W", "I", "M", "I", "N", "T", "H", "E", "S", "E", "A", "F", "G", "L", "O", "O", "K", "F", "S"],
+    ["S", "I", "X", "C", "V", "F", "B", "N", "M", "P", "L", "K", "J", "H", "G", "F", "D", "S", "A", "U", "Z", "X", "C", "V", "O", "O", "K", "F", "O", "E"],
+    ["E", "N", "C", "W", "B", "G", "N", "M", "Q", "A", "Y", "T", "R", "E", "W", "Q", "P", "L", "K", "J", "H", "S", "F", "D", "S", "A", "X", "Z", "R", "N"],
+    ["E", "G", "S", "E", "E", "A", "F", "I", "L", "M", "H", "R", "G", "F", "D", "C", "X", "S", "A", "W", "Q", "E", "N", "B", "V", "C", "L", "K", "Y", "D"],
+    ["A", "S", "L", "R", "P", "M", "N", "B", "V", "C", "X", "Z", "O", "A", "W", "S", "E", "D", "R", "F", "T", "N", "Y", "H", "U", "J", "I", "K", "O", "A"],
+    ["F", "P", "E", "T", "O", "U", "A", "Q", "W", "S", "X", "C", "D", "E", "R", "F", "V", "B", "G", "T", "Y", "D", "N", "M", "J", "U", "K", "I", "U", "M"],
+    ["I", "A", "A", "Y", "H", "Y", "Z", "A", "Q", "W", "S", "X", "C", "D", "E", "R", "F", "V", "B", "G", "T", "A", "H", "N", "M", "J", "U", "K", "R", "E"],
+    ["L", "C", "V", "U", "D", "R", "A", "W", "A", "P", "I", "C", "T", "U", "R", "E", "B", "G", "T", "Y", "H", "M", "M", "J", "U", "K", "I", "L", "K", "S"],
+    ["M", "E", "E", "I", "O", "T", "P", "L", "K", "J", "H", "G", "F", "D", "S", "A", "M", "N", "B", "V", "C", "E", "Z", "W", "Q", "A", "S", "E", "E", "S"],
+    ["P", "R", "A", "O", "P", "A", "S", "D", "F", "G", "H", "J", "K", "L", "T", "R", "Y", "T", "O", "O", "P", "S", "N", "A", "D", "O", "O", "R", "Y", "A"],
+    ["O", "E", "B", "F", "M", "G", "I", "V", "E", "S", "O", "M", "E", "B", "O", "D", "Y", "F", "L", "O", "W", "S", "R", "S", "A", "Z", "X", "S", "S", "G"],
+    ["I", "M", "R", "E", "M", "E", "M", "B", "E", "R", "S", "O", "M", "E", "B", "O", "D", "Y", "S", "N", "A", "M", "E", "A", "E", "V", "F", "R", "B", "E"],
+    ["U", "E", "H", "E", "A", "R", "A", "N", "O", "I", "S", "E", "P", "O", "L", "K", "J", "U", "H", "G", "F", "D", "S", "A", "Z", "X", "W", "T", "N", "H"],
+    ["Y", "T", "J", "A", "S", "K", "L", "F", "I", "N", "D", "A", "P", "A", "R", "K", "I", "N", "G", "S", "P", "A", "C", "E", "C", "D", "R", "G", "M", "Y"],
+    ["U", "S", "E", "A", "N", "A", "P", "P", "H", "J", "K", "L", "Z", "X", "C", "V", "B", "N", "M", "Q", "W", "E", "R", "T", "Y", "U", "I", "Y", "S", "U"],
+    ["R", "F", "L", "E", "A", "V", "E", "Y", "O", "U", "R", "B", "A", "G", "O", "N", "A", "T", "R", "A", "I", "N", "D", "F", "G", "H", "J", "K", "U", "K"]
+  ],
+  words: [
+    "dance the tango", "find a parking space", "leave your bag on a train", "wait for a bus", "remember somebody's name",
+    "forget somebody's name", "see a film", "help somebody", "call (or phone) a taxi", "talk to a friend",
+    "draw a picture", "sing a song", "buy a pizza", "tell somebody a secret", "paint a picture", "take a photo",
+    "run a race", "meet a friend", "hear a noise", "try to open a door", "give somebody flowers", "look for your keys",
+    "use an app", "send a message", "swim in the sea"
+  ],
+  word_positions: {
+    "forget somebody's name": {
+      direction: "H",
+      cells: [
+        { row: 6, col: 2 }, { row: 6, col: 3 }, { row: 6, col: 4 }, { row: 6, col: 5 }, { row: 6, col: 6 }, { row: 6, col: 7 }, { row: 6, col: 8 },
+        { row: 6, col: 9 }, { row: 6, col: 10 }, { row: 6, col: 11 }, { row: 6, col: 12 }, { row: 6, col: 13 }, { row: 6, col: 14 },
+        { row: 6, col: 15 }, { row: 6, col: 16 }, { row: 6, col: 17 }, { row: 6, col: 18 }, { row: 6, col: 19 }, { row: 6, col: 20 }
+      ]
+    },
+    "help somebody": {
+        direction: "H",
+        cells: [{row:4,col:1},{row:4,col:2},{row:4,col:3},{row:4,col:4},
+                {row:4,col:5},{row:4,col:6},{row:4,col:7},{row:4,col:8},
+                {row:4,col:9},{row:4,col:10},{row:4,col:11},{row:4,col:12}]
+    },
+    "wait for a bus": {
+        direction: "V",
+        cells: [{row:0,col:28},{row:1,col:28},{row:2,col:28},{row:3,col:28},
+                {row:4,col:28},{row:5,col:28},{row:6,col:28},{row:7,col:28},
+                {row:8,col:28},{row:9,col:28},{row:10,col:28}]
+    },
+    "see a film": {
+      direction: "H",
+      cells: [
+        { row: 17, col: 2 }, { row: 17, col: 3 }, { row: 17, col: 4 }, { row: 17, col: 5 }, { row: 17, col: 6 },
+        { row: 17, col: 7 }, { row: 17, col: 8 }, { row: 17, col: 9 }
+      ]
+    },
+    "look for your keys": {
+        direction: "V",
+        cells: [{row:14,col:28},{row:15,col:28},{row:16,col:28},{row:17,col:28},
+                {row:18,col:28},{row:19,col:28},{row:20,col:28},{row:21,col:28},
+                {row:22,col:28},{row:23,col:28},{row:24,col:28},{row:25,col:28},
+                {row:26,col:28},{row:27,col:28},{row:28,col:28}]
+    },
+    "talk to a friend": {
+      direction: "H",
+      cells: [
+        {row:2,col:15},{row:2,col:16},{row:2,col:17},{row:2,col:18},{row:2,col:19},
+        {row:2,col:20},{row:2,col:21},{row:2,col:22},{row:2,col:23},{row:2,col:24},
+        {row:2,col:25},{row:2,col:26},{row:2,col:27}
+      ]
+    },
+    "send a message": {
+        direction: "V",
+        cells: [{row:14,col:29},{row:15,col:29},{row:16,col:29},{row:17,col:29},
+                {row:18,col:29},{row:19,col:29},{row:20,col:29},{row:21,col:29},
+                {row:22,col:29},{row:23,col:29},{row:24,col:29},{row:25,col:29}]
+    },
+    "run a race": {
+      direction: "H",
+      cells: [
+        { row: 7, col: 9 }, { row: 7, col: 10 }, { row: 7, col: 11 }, { row: 7, col: 12 }, { row: 7, col: 13 }, { row: 7, col: 14 },
+        { row: 7, col: 15 }, { row: 7, col: 16 }
+      ]
+    },
+    "sing a song": {
+        direction: "V",
+        cells: [
+          {row:4,col:0},{row:5,col:0},{row:6,col:0},{row:7,col:0},{row:8,col:0},
+          {row:9,col:0},{row:10,col:0},{row:11,col:0},{row:12,col:0}
+        ]
+    },
+    "meet a friend": {
+        direction: "H",
+        cells: [{row:13,col:17},{row:13,col:18},{row:13,col:19},{row:13,col:20},
+                {row:13,col:21},{row:13,col:22},{row:13,col:23},{row:13,col:24},
+                {row:13,col:25},{row:13,col:26},{row:13,col:27}]
+    },
+    "take a photo": {
+      direction: "H",
+      cells: [
+        {row:1,col:20},{row:1,col:21},{row:1,col:22},{row:1,col:23},{row:1,col:24},
+        {row:1,col:25},{row:1,col:26},{row:1,col:27},{row:1,col:28},{row:1,col:29}
+      ]
+    },
+    "draw a picture": {
+      direction: "H",
+      cells: [
+        {row:21,col:4},{row:21,col:5},{row:21,col:6},{row:21,col:7},{row:21,col:8},
+        {row:21,col:9},{row:21,col:10},{row:21,col:11},{row:21,col:12},{row:21,col:13},
+        {row:21,col:14},{row:21,col:15}
+      ]
+    },
+    "swim in the sea": {
+      direction: "H",
+      cells: [
+        { row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 }, { row: 0, col: 3 }, { row: 0, col: 4 }, { row: 0, col: 5 },
+        { row: 0, col: 6 }, { row: 0, col: 7 }, { row: 0, col: 8 }, { row: 0, col: 9 }, { row: 0, col: 10 }, { row: 0, col: 11 }
+      ]
+    },
+    "dance the tango": {
+      direction: "H",
+      cells: [
+        { row: 12, col: 3 }, { row: 12, col: 4 }, { row: 12, col: 5 }, { row: 12, col: 6 }, { row: 12, col: 7 }, { row: 12, col: 8 },
+        { row: 12, col: 9 }, { row: 12, col: 10 }, { row: 12, col: 11 }, { row: 12, col: 12 }, { row: 12, col: 13 }, { row: 12, col: 14 },
+        { row: 12, col: 15 }
+      ]
+    },
+    "leave your bag on a train": {
+        direction: "H",
+        cells: [{row:29,col:2},{row:29,col:3},{row:29,col:4},{row:29,col:5},
+                {row:29,col:6},{row:29,col:7},{row:29,col:8},{row:29,col:9},
+                {row:29,col:10},{row:29,col:11},{row:29,col:12},{row:29,col:13},
+                {row:29,col:14},{row:29,col:15},{row:29,col:16},{row:29,col:17},
+                {row:29,col:18},{row:29,col:19},{row:29,col:20},{row:29,col:21}]
+    },
+    "call (or phone) a taxi": {
+      direction: "H",
+      cells: [
+        { row: 3, col: 0 }, { row: 3, col: 1 }, { row: 3, col: 2 }, { row: 3, col: 3 }, { row: 3, col: 4 }, { row: 3, col: 5 },
+        { row: 3, col: 6 }, { row: 3, col: 7 }, { row: 3, col: 8 }, { row: 3, col: 9 }, { row: 3, col: 10 }, { row: 3, col: 11 },
+        { row: 3, col: 12 }, { row: 3, col: 13 }, { row: 3, col: 14 }, { row: 3, col: 15 }
+      ]
+    },
+    "hear a noise": {
+      direction: "H",
+      cells: [
+        { row: 26, col: 2 }, { row: 26, col: 3 }, { row: 26, col: 4 }, { row: 26, col: 5 }, { row: 26, col: 6 }, { row: 26, col: 7 },
+        { row: 26, col: 8 }, { row: 26, col: 9 }, { row: 26, col: 10 }, { row: 26, col: 11 }
+      ]
+    },
+    "tell somebody a secret": {
+      direction: "H",
+      cells: [
+        {row:9,col:2},{row:9,col:3},{row:9,col:4},{row:9,col:5},{row:9,col:6},
+        {row:9,col:7},{row:9,col:8},{row:9,col:9},{row:9,col:10},{row:9,col:11},
+        {row:9,col:12},{row:9,col:13},{row:9,col:14},{row:9,col:15},{row:9,col:16},
+        {row:9,col:17},{row:9,col:18},{row:9,col:19},{row:9,col:20}
+      ]
+    },
+    "find a parking space": {
+      direction: "H",
+      cells: [
+        {row:27,col:7},{row:27,col:8},{row:27,col:9},{row:27,col:10},{row:27,col:11},
+        {row:27,col:12},{row:27,col:13},{row:27,col:14},{row:27,col:15},{row:27,col:16},
+        {row:27,col:17},{row:27,col:18},{row:27,col:19},{row:27,col:20},{row:27,col:21},
+        {row:27,col:22},{row:27,col:23}
+      ]
+    },
+    "paint a picture": {
+      direction: "H",
+      cells: [
+        { row: 5, col: 3 }, { row: 5, col: 4 }, { row: 5, col: 5 }, { row: 5, col: 6 }, { row: 5, col: 7 }, { row: 5, col: 8 },
+        { row: 5, col: 9 }, { row: 5, col: 10 }, { row: 5, col: 11 }, { row: 5, col: 12 }, { row: 5, col: 13 }, { row: 5, col: 14 },
+        { row: 5, col: 15 }
+      ]
+    },
+    "buy a pizza": {
+      direction: "H",
+      cells: [
+        {row:3,col:21},{row:3,col:22},{row:3,col:23},{row:3,col:24},{row:3,col:25},
+        {row:3,col:26},{row:3,col:27},{row:3,col:28},{row:3,col:29}
+      ]
+    },
+    "remember somebody's name": {
+      direction: "H",
+      cells: [
+        { row: 25, col: 2 }, { row: 25, col: 3 }, { row: 25, col: 4 }, { row: 25, col: 5 }, { row: 25, col: 6 }, { row: 25, col: 7 },
+        { row: 25, col: 8 }, { row: 25, col: 9 }, { row: 25, col: 10 }, { row: 25, col: 11 }, { row: 25, col: 12 }, { row: 25, col: 13 },
+        { row: 25, col: 14 }, { row: 25, col: 15 }, { row: 25, col: 16 }, { row: 25, col: 17 }, { row: 25, col: 18 }, { row: 25, col: 19 },
+        { row: 25, col: 20 }, { row: 25, col: 21 }, { row: 25, col: 22 }
+      ]
+    },
+    "give somebody flowers": {
+      direction: "H",
+      cells: [
+        { row: 24, col: 5 }, { row: 24, col: 6 }, { row: 24, col: 7 }, { row: 24, col: 8 }, { row: 24, col: 9 }, { row: 24, col: 10 },
+        { row: 24, col: 11 }, { row: 24, col: 12 }, { row: 24, col: 13 }, { row: 24, col: 14 }, { row: 24, col: 15 }, { row: 24, col: 16 },
+        { row: 24, col: 17 }, { row: 24, col: 18 }, { row: 24, col: 19 }, { row: 24, col: 20 }, { row: 24, col: 21 }, { row: 24, col: 22 }, { row: 24, col: 23 }
+      ]
+    },
+    "try to open a door": {
+      direction: "H",
+      cells: [
+        { row: 23, col: 14 }, { row: 23, col: 15 }, { row: 23, col: 16 }, { row: 23, col: 17 }, { row: 23, col: 18 }, { row: 23, col: 19 },
+        { row: 23, col: 20 }, { row: 23, col: 21 }, { row: 23, col: 22 }, { row: 23, col: 23 }, { row: 23, col: 24 }, { row: 23, col: 25 },
+        { row: 23, col: 26 }, { row: 23, col: 27 }
+      ]
+    },
+    "use an app": {
+        direction: "H",
+        cells: [{row:28,col:0},{row:28,col:1},{row:28,col:2},{row:28,col:3},
+                {row:28,col:4},{row:28,col:5},{row:28,col:6},{row:28,col:7}]
+    }
+  }
+};
+</script>
+
+<!-- ──────────────────────────────────────────────────────────── -->
+<!--  CONTROLLER                                                  -->
+<!-- ──────────────────────────────────────────────────────────── -->
+<script>
+(function() {
+  "use strict";
+
+  /* ── State ─────────────────────────────────────────────────── */
+  const state = {
+    isSelecting: false,
+    // ordered list of cells in current drag
+    currentSelectionCells: [],     // [{row, col}, ...]
+    // set of "row,col" strings for deduplication during drag
+    currentSelectionSet: new Set(),
+    // words already found
+    foundWords: new Set(),          // Set of word_id strings
+    // all cells that are permanently correct: "row,col" → Set of word_ids
+    correctCells: new Map(),
+    // telemetry: session start
+    sessionStartMs: Date.now()
+  };
+
+  /* ── DOM refs ────────────────────────────────────────────────── */
+  const gridEl    = document.getElementById('wordsearch-grid');
+  const wordListEl = document.getElementById('word-list');
+  const feedbackEl = document.getElementById('feedback-live');
+  const progressEl = document.getElementById('progress-label');
+
+  /* ── Helpers ────────────────────────────────────────────────── */
+  const cellKey = (r, c) => `${r},${c}`;
+
+  /** Serialize an array of {row,col} to a pipe-joined "r,c|r,c|..." string */
+  const serializePath = cells => cells.map(c => cellKey(c.row, c.col)).join('|');
+
+  /** Get the cell element at (row, col) — fast via data attributes selector */
+  const getCellEl = (r, c) =>
+    gridEl.querySelector(`.cell[data-row="${r}"][data-col="${c}"]`);
+
+  /* ── STEP 1: Render header (title, difficulty, media) ──────── */
+  function renderHeader() {
+    const { title, difficulty, media } = activityData;
+    const headerEl = document.getElementById('activity-header');
+    const titleH1 = document.createElement('h1');
+    titleH1.innerHTML = `Word <span>Search</span>`;
+    headerEl.appendChild(titleH1);
+
+    /* [A5] difficulty badge — optional */
+    if (difficulty) {
+      const badge = document.createElement('span');
+      badge.className = 'badge-difficulty';
+      badge.textContent = difficulty;
+      badge.setAttribute('aria-label', `Difficulty: ${difficulty}`);
+      headerEl.appendChild(badge);
+    }
+
+    /* [A5] hint — optional collapsible */
+    const hintWrap = document.getElementById('hint-wrap');
+    if (activityData.hint) {
+      const details = document.createElement('details');
+      details.className = 'hint';
+      details.innerHTML = `<summary>Hint</summary><p>${activityData.hint}</p>`;
+      hintWrap.appendChild(details);
+    }
+
+    /* [A5] media — optional, render safely */
+    if (media) {
+      const mediaWrap = document.getElementById('media-wrap');
+      mediaWrap.style.display = '';
+      if (media.type === 'image' && media.src) {
+        const img = document.createElement('img');
+        img.src = media.src;
+        img.alt = media.alt || '';
+        mediaWrap.appendChild(img);
+      } else if (media.type === 'audio' && media.src) {
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.src = media.src;
+        mediaWrap.appendChild(audio);
+      }
+      /* silently ignore unsupported types — [A5] no breaking */
+    }
+  }
+
+  /* ── STEP 2: Render grid ────────────────────────────────────── */
+  function renderGrid() {
+    const { grid } = activityData;
+    const numCols = grid[0].length;
+
+    /* Set CSS grid columns */
+    gridEl.style.gridTemplateColumns = `repeat(${numCols}, var(--esl-cell-size))`;
+
+    /* Build fragment for performance */
+    const frag = document.createDocumentFragment();
+
+    grid.forEach((row, rIdx) => {
+      row.forEach((letter, cIdx) => {
+        const cell = document.createElement('span');
+        cell.className = 'cell';
+        cell.setAttribute('role', 'gridcell');
+        cell.setAttribute('data-row', rIdx);
+        cell.setAttribute('data-col', cIdx);
+        cell.setAttribute('aria-label', `${letter}, row ${rIdx + 1}, column ${cIdx + 1}`);
+        cell.textContent = letter;
+
+        /* Restore correct state if re-rendering after words found */
+        if (state.correctCells.has(cellKey(rIdx, cIdx))) {
+          cell.classList.add('state-correct');
+        }
+
+        frag.appendChild(cell);
+      });
+    });
+
+    gridEl.innerHTML = '';
+    gridEl.appendChild(frag);
+  }
+
+  /* ── STEP 2: Render word list ───────────────────────────────── */
+  function renderWordList() {
+    wordListEl.innerHTML = '';
+    activityData.words.forEach(word => {
+      const li = document.createElement('li');
+      li.className = 'word-item';
+      li.id = `word-item-${encodeURIComponent(word)}`;
+      li.setAttribute('data-word', word);
+      li.setAttribute('aria-label', word + (state.foundWords.has(word) ? ', found' : ''));
+      li.textContent = word;
+      if (state.foundWords.has(word)) {
+        li.classList.add('word-found');
+      }
+      wordListEl.appendChild(li);
+    });
+    updateProgress();
+  }
+
+  function updateProgress() {
+    const total = activityData.words.length;
+    const found = state.foundWords.size;
+    progressEl.textContent = `${found} / ${total}`;
+  }
+
+  /* ── STEP 3: Selection visual update ────────────────────────── */
+  function applySelectionVisual() {
+    /* Remove state-selected from all cells */
+    gridEl.querySelectorAll('.state-selected').forEach(el => {
+      el.classList.remove('state-selected');
+    });
+    /* Re-apply for current selection */
+    state.currentSelectionCells.forEach(({row, col}) => {
+      const el = getCellEl(row, col);
+      if (el) el.classList.add('state-selected');
+    });
+  }
+
+  function clearSelectionVisual() {
+    gridEl.querySelectorAll('.state-selected').forEach(el =>
+      el.classList.remove('state-selected')
+    );
+  }
+
+  /* ── STEP 3: Pointer Event Handlers ─────────────────────────── */
+  /*
+    MOBILE DRAG FIX (Etapa 3 / A10):
+    - We use Pointer Events (pointerdown/pointermove/pointerup) which work
+      on both mouse and touch, unifying the handler.
+    - setPointerCapture on the grid element ensures pointermove keeps firing
+      even if the pointer leaves the grid boundaries.
+    - elementFromPoint is used in pointermove to find which cell is under
+      the finger/pointer, since capturedPointer events report coordinates
+      relative to the capturing element, not the element under the pointer.
+    - touch-action: none on #wordsearch-grid prevents browser scroll during drag.
+  */
+
+  function getCellFromEvent(e) {
+    /* In captured pointer mode, we can't rely on e.target being the cell.
+       Use elementFromPoint with client coordinates to find actual cell under pointer. */
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return null;
+    const cell = el.closest('.cell');
+    if (!cell) return null;
+    return {
+      row: parseInt(cell.dataset.row, 10),
+      col: parseInt(cell.dataset.col, 10),
+      el: cell
+    };
+  }
+
+  /**
+   * handleSelectionStart — fired on pointerdown on a grid cell.
+   * Initiates drag selection.
+   */
+  function handleSelectionStart(e) {
+    /* Only primary pointer (left mouse / first touch) */
+    if (e.button !== undefined && e.button !== 0) return;
+    const cell = getCellFromEvent(e);
+    if (!cell) return;
+
+    e.preventDefault(); /* prevent text selection / context menu */
+
+    state.isSelecting = true;
+    state.currentSelectionCells = [{ row: cell.row, col: cell.col }];
+    state.currentSelectionSet = new Set([cellKey(cell.row, cell.col)]);
+
+    /*
+      setPointerCapture: all subsequent pointermove events for this pointer
+      will be dispatched to gridEl, even if the pointer moves outside it.
+      This is the critical mobile fix — without it, dragging outside the grid
+      loses the pointermove events on touch devices.
+    */
+    try {
+      gridEl.setPointerCapture(e.pointerId);
+    } catch(_) { /* noop if not supported */ }
+
+    applySelectionVisual();
+  }
+
+  /**
+   * handleSelectionMove — fired on pointermove on gridEl (captured).
+   * Extends the current selection to the cell under the pointer.
+   *
+   * Edge case — deduplication: if cell already in selection, skip (avoids
+   * zigzag artifacts when the pointer backtracks slightly).
+   *
+   * Edge case — no gaps: we add the cell regardless of adjacency since the
+   * grid only has horizontal words; diagonal and non-linear paths simply won't
+   * match any word_positions entry (gracefully fails at check time).
+   */
+  function handleSelectionMove(e) {
+    if (!state.isSelecting) return;
+
+    /*
+      Prevent scroll while user is actively selecting on touch devices.
+      We only call preventDefault here (not in pointerdown) to allow
+      normal tap/scroll outside of an active selection session.
+    */
+    e.preventDefault();
+
+    const cell = getCellFromEvent(e);
+    if (!cell) return;
+
+    const key = cellKey(cell.row, cell.col);
+
+    /* Deduplication: skip if this cell is already the last one added */
+    const last = state.currentSelectionCells[state.currentSelectionCells.length - 1];
+    if (last && last.row === cell.row && last.col === cell.col) return;
+
+    /* If cell is already somewhere in the selection (backtrack), truncate to it.
+       This allows the user to "undo" part of the drag by going back. */
+    if (state.currentSelectionSet.has(key)) {
+      const idx = state.currentSelectionCells.findIndex(
+        c => c.row === cell.row && c.col === cell.col
+      );
+      if (idx !== -1) {
+        const removed = state.currentSelectionCells.splice(idx + 1);
+        removed.forEach(c => state.currentSelectionSet.delete(cellKey(c.row, c.col)));
+      }
+    } else {
+      state.currentSelectionCells.push({ row: cell.row, col: cell.col });
+      state.currentSelectionSet.add(key);
+    }
+
+    applySelectionVisual();
+  }
+
+  /**
+   * handleSelectionEnd — fired on pointerup (captured to gridEl or on window).
+   * Compares selected path against word_positions and resolves the attempt.
+   */
+  function handleSelectionEnd(e) {
+    if (!state.isSelecting) return;
+    state.isSelecting = false;
+
+    try { gridEl.releasePointerCapture(e.pointerId); } catch(_) {}
+
+    /* ── STEP 5: Check selected path ──────────────────────────── */
+    const selectedPath = [...state.currentSelectionCells];
+    clearSelectionVisual();
+    state.currentSelectionCells = [];
+    state.currentSelectionSet.clear();
+
+    if (selectedPath.length < 2) return; /* too short to be a word */
+
+    const selectedSerial   = serializePath(selectedPath);
+    const selectedReverse  = serializePath([...selectedPath].reverse());
+
+    let foundWordId = null;
+
+    for (const [wordId, posData] of Object.entries(activityData.word_positions)) {
+      /* Skip already found words */
+      if (state.foundWords.has(wordId)) continue;
+
+      const wordSerial = serializePath(posData.cells);
+
+      /*
+        Edge case — reverse selection (Etapa 4.2):
+        User may drag right-to-left. We accept if the reversed path matches.
+      */
+      if (selectedSerial === wordSerial || selectedReverse === wordSerial) {
+        foundWordId = wordId;
+        break;
+      }
+    }
+
+    if (foundWordId) {
+      resolveWordFound(foundWordId);
+    }
+    /* If no match: selection is cleared (already done above), user retries silently */
+  }
+
+  /* ── STEP 5: Resolve a found word ───────────────────────────── */
+  function resolveWordFound(wordId) {
+    state.foundWords.add(wordId);
+
+    const cells = activityData.word_positions[wordId].cells;
+
+    /*
+      Edge case — overlapping words (Etapa 4.3):
+      correctCells is a Map of "r,c" → Set of owning wordIds.
+      We only ADD to it; state-correct is never removed.
+    */
+    cells.forEach(({row, col}) => {
+      const key = cellKey(row, col);
+      if (!state.correctCells.has(key)) state.correctCells.set(key, new Set());
+      state.correctCells.get(key).add(wordId);
+
+      const el = getCellEl(row, col);
+      if (el) {
+        el.classList.remove('state-selected');
+        el.classList.add('state-correct');
+      }
+    });
+
+    /* Mark word in list */
+    const listItem = wordListEl.querySelector(`[data-word="${CSS.escape(wordId)}"]`);
+    if (listItem) {
+      listItem.classList.add('word-found');
+      listItem.setAttribute('aria-label', wordId + ', found');
+    }
+
+    updateProgress();
+
+    /* [A11] Emit esl:attempt telemetry
+       time_on_item_ms: elapsed from session start to the moment of discovery.
+       Choice rationale: since words don't have individual start moments
+       (user can find them in any order), we measure from the global session
+       start. This gives a fair "time to find this phrase" metric usable for
+       difficulty analysis. Documentado aqui conforme A11. */
+    const time_on_item_ms = Date.now() - state.sessionStartMs;
+    const attemptEvent = new CustomEvent('esl:attempt', {
+      bubbles: true,
+      detail: {
+        activity_type: 'word_search',
+        word_id: wordId,
+        correct: true,
+        time_on_item_ms
+      }
+    });
+    document.dispatchEvent(attemptEvent);
+
+    /* Visual feedback */
+    const feedback = document.getElementById('feedback-live');
+    feedback.textContent = `✓ "${wordId}" found!`;
+    feedback.className = 'show-correct';
+    clearTimeout(feedback._timer);
+    feedback._timer = setTimeout(() => {
+      if (!checkComplete()) {
+        feedback.textContent = '';
+        feedback.className = '';
+      }
+    }, 2000);
+
+    checkComplete();
+  }
+
+  function checkComplete() {
+    if (state.foundWords.size === activityData.words.length) {
+      const feedback = document.getElementById('feedback-live');
+      feedback.textContent = '🎉 All phrases found! Well done!';
+      feedback.className = 'show-complete';
+      return true;
+    }
+    return false;
+  }
+
+  /* ── STEP 3: Attach pointer event listeners ─────────────────── */
+  function attachEvents() {
+    /*
+      pointerdown on the grid element (bubbles up from cells).
+      pointermove on gridEl — after setPointerCapture, all move events
+        for that pointer arrive here even outside the element.
+      pointerup on window — catches release outside the grid gracefully.
+    */
+    gridEl.addEventListener('pointerdown',  handleSelectionStart, { passive: false });
+    gridEl.addEventListener('pointermove',  handleSelectionMove,  { passive: false });
+
+    /* pointerup on window: ensures drag-and-release outside grid is handled
+       (Etapa 4.4 — "evitar travar seleção ao sair do grid") */
+    window.addEventListener('pointerup', handleSelectionEnd);
+
+    /* Also handle pointercancel (e.g., system interrupts touch on iOS) */
+    window.addEventListener('pointercancel', (e) => {
+      if (state.isSelecting) {
+        state.isSelecting = false;
+        clearSelectionVisual();
+        state.currentSelectionCells = [];
+        state.currentSelectionSet.clear();
+        try { gridEl.releasePointerCapture(e.pointerId); } catch(_) {}
+      }
+    });
+
+    /* Desktop fallback: mouseover for browsers that don't fire pointermove
+       on cells (very old browsers). Pointer events supersede this on modern. */
+    gridEl.addEventListener('mouseover', (e) => {
+      if (!state.isSelecting) return;
+      /* Only add if pointermove didn't already handle it
+         (check: pointermove fires before mouseover in modern browsers) */
+    });
+  }
+
+  /* ── Bootstrap ───────────────────────────────────────────────── */
+  function init() {
+    renderHeader();
+    renderGrid();
+    renderWordList();
+    attachEvents();
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  /* ── Debug: log esl:attempt events to console ───────────────── */
+  document.addEventListener('esl:attempt', (e) => {
+    console.log('[esl:attempt]', e.detail);
+  });
+
+})();
+</script>
+</body>
+</html>
