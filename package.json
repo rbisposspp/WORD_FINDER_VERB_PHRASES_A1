@@ -1,0 +1,24 @@
+{
+  "name": "word-finder-verb-phrases-a1",
+  "version": "1.0.0",
+  "description": "Static ESL word-search activity",
+  "main": "grid.js",
+  "scripts": {
+    "test": "node -e \"console.log('No automated tests configured yet')\"",
+    "start": "powershell -NoProfile -Command Start-Process word_search_activity.html",
+    "serve": "python -m http.server 8000"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rbisposspp/WORD_FINDER_VERB_PHRASES_A1.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/rbisposspp/WORD_FINDER_VERB_PHRASES_A1/issues"
+  },
+  "homepage": "https://github.com/rbisposspp/WORD_FINDER_VERB_PHRASES_A1#readme",
+  "private": true
+}

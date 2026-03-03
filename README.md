@@ -8,6 +8,7 @@ The app runs directly in the browser with no build step.
 - 30x30 letter grid with phrase list sidebar
 - Drag selection on desktop and mobile (Pointer Events)
 - Real-time found-word highlighting and progress tracking
+- Per-word reveal button (`⌖`) to briefly show word location in the grid
 - Manual `word_positions` mapping for deterministic puzzles
 
 ## Project Structure
@@ -34,6 +35,20 @@ python -m http.server 8000
 
 Then open `http://localhost:8000/word_search_activity.html`.
 
+## Node Scripts
+
+This repo now includes a minimal Node setup for consistent commands:
+
+```powershell
+npm test
+npm run start
+npm run serve
+```
+
+- `npm test`: placeholder test command (currently prints a message and exits successfully)
+- `npm run start`: opens `word_search_activity.html` on Windows
+- `npm run serve`: serves files via `python -m http.server 8000`
+
 ## Data Contract
 
 The puzzle uses `activityData.word_positions` where each phrase maps to an ordered
@@ -53,8 +68,9 @@ Validation rules:
 
 1. Test on desktop and mobile width.
 2. Drag-select horizontal and vertical phrases.
-3. Confirm found state in both grid and sidebar.
-4. Verify no runtime errors in browser console.
+3. Use the reveal icon (`⌖`) on unfound words and confirm temporary hint highlight.
+4. Confirm found state in both grid and sidebar (found words hide reveal button).
+5. Verify no runtime errors in browser console.
 
 ## Contributing
 

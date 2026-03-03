@@ -636,6 +636,9 @@ const activityData = {
     // telemetry: session start
     sessionStartMs: Date.now()
   };
+  const REVEAL_DURATION = 2000;
+  let revealTimer = null;
+  let activeRevealWordId = null;
 
   /* ── DOM refs ────────────────────────────────────────────────── */
   const gridEl    = document.getElementById('wordsearch-grid');
@@ -741,7 +744,21 @@ const activityData = {
       li.id = `word-item-${encodeURIComponent(word)}`;
       li.setAttribute('data-word', word);
       li.setAttribute('aria-label', word + (state.foundWords.has(word) ? ', found' : ''));
-      li.textContent = word;
+      li.textContent = '';
+      const textNode = document.createTextNode(word);
+      li.appendChild(textNode);
+
+      const btn = document.createElement('button');
+      btn.className = 'reveal-btn';
+      btn.setAttribute('aria-label', `Reveal location of: ${word}`);
+      btn.setAttribute('title', 'Show me where this phrase is');
+      btn.textContent = '⌖';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        revealWordLocation(word);
+      });
+      li.appendChild(btn);
+
       if (state.foundWords.has(word)) {
         li.classList.add('word-found');
       }
@@ -754,6 +771,57 @@ const activityData = {
     const total = activityData.words.length;
     const found = state.foundWords.size;
     progressEl.textContent = `${found} / ${total}`;
+  }
+
+  function clearRevealState() {
+    if (revealTimer) {
+      clearTimeout(revealTimer);
+      revealTimer = null;
+    }
+    gridEl.querySelectorAll('.state-hint').forEach(el => {
+      el.classList.remove('state-hint');
+    });
+    wordListEl.querySelectorAll('.word-item.revealing').forEach(el => {
+      el.classList.remove('revealing');
+    });
+    activeRevealWordId = null;
+  }
+
+  /**
+   * revealWordLocation(wordId)
+   * Highlights cells for wordId for REVEAL_DURATION ms, then fades.
+   */
+  function revealWordLocation(wordId) {
+    if (!activityData.word_positions[wordId]) return;
+    if (state.foundWords.has(wordId)) return;
+
+    clearRevealState();
+
+    const cells = activityData.word_positions[wordId].cells;
+    cells.forEach(({ row, col }) => {
+      const el = getCellEl(row, col);
+      if (el) el.classList.add('state-hint');
+    });
+
+    const first = cells[0];
+    const firstEl = first ? getCellEl(first.row, first.col) : null;
+    if (firstEl) {
+      firstEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }
+
+    const listItem = wordListEl.querySelector(`[data-word="${CSS.escape(wordId)}"]`);
+    if (listItem) listItem.classList.add('revealing');
+    activeRevealWordId = wordId;
+
+    revealTimer = setTimeout(() => {
+      cells.forEach(({ row, col }) => {
+        const el = getCellEl(row, col);
+        if (el) el.classList.remove('state-hint');
+      });
+      if (listItem) listItem.classList.remove('revealing');
+      revealTimer = null;
+      activeRevealWordId = null;
+    }, REVEAL_DURATION);
   }
 
   /* ── STEP 3: Selection visual update ────────────────────────── */
@@ -927,6 +995,9 @@ const activityData = {
   /* ── STEP 5: Resolve a found word ───────────────────────────── */
   function resolveWordFound(wordId) {
     state.foundWords.add(wordId);
+    if (activeRevealWordId === wordId) {
+      clearRevealState();
+    }
 
     const cells = activityData.word_positions[wordId].cells;
 
