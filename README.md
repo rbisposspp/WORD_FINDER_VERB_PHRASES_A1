@@ -1,79 +1,35 @@
-# WORD Finder: Verb Phrases A1
+# Word Finder: Verb Phrases A1
 
-Static ESL word-search activity focused on common English verb phrases (A1 level).  
-The app runs directly in the browser with no build step.
+## What it is
+Word Finder: Verb Phrases A1 is a browser-based word-search activity for beginner ESL vocabulary practice. It uses a fixed puzzle grid and guided interaction to help learners notice and recall common verb phrases.
 
-## Features
+## Who it is for
+This project is designed for ESL teachers working with A1 learners in classroom, online, or 1-on-1 settings. It is useful for warm-ups, review tasks, and low-prep vocabulary reinforcement.
 
-- 30x30 letter grid with phrase list sidebar
-- Drag selection on desktop and mobile (Pointer Events)
-- Real-time found-word highlighting and progress tracking
-- Per-word reveal button (`⌖`) to briefly show word location in the grid
-- Manual `word_positions` mapping for deterministic puzzles
+## Main features
+- 30x30 letter grid with target phrase list
+- Drag selection for desktop and mobile
+- Real-time progress and found-word highlighting
+- Reveal support for guided classroom use
+- Deterministic puzzle data through `grid.js` and `word_positions.js`
+- Static browser delivery with no build requirement
 
-## Project Structure
+## Teaching value
+The activity supports vocabulary recognition, recall, and teacher-led review. It can be used for short competitive tasks, pair work, or slower guided practice where the teacher wants to recycle common verb phrases without adding setup complexity.
 
-- `word_search_activity.html`: main app (UI, styles, game logic, embedded data)
-- `grid.js`: optional grid data source
-- `word_positions.js`: optional phrase coordinate mappings
-- `INSTRUCOES.md`: authoring instructions
-- `add_reveal_button_prompt.md`: feature/change prompt reference
+## Tech stack
+- HTML
+- CSS
+- Vanilla JavaScript
 
-## Run Locally
+## How to run
+Open `word_search_activity.html` directly in a browser, or serve the repository locally:
 
-Open directly:
-
-```powershell
-start word_search_activity.html
-```
-
-Or serve over HTTP:
-
-```powershell
-python -m http.server 8000
+```bash
+python3 -m http.server 8000
 ```
 
 Then open `http://localhost:8000/word_search_activity.html`.
 
-## Node Scripts
-
-This repo now includes a minimal Node setup for consistent commands:
-
-```powershell
-npm test
-npm run start
-npm run serve
-```
-
-- `npm test`: placeholder test command (currently prints a message and exits successfully)
-- `npm run start`: opens `word_search_activity.html` on Windows
-- `npm run serve`: serves files via `python -m http.server 8000`
-
-## Data Contract
-
-The puzzle uses `activityData.word_positions` where each phrase maps to an ordered
-array of cells:
-
-```js
-{ direction: "H" | "V", cells: [{ row, col }, ...] }
-```
-
-Validation rules:
-
-- `cells.length` must match normalized phrase length
-- each `{row,col}` must be inside `0..29`
-- `grid[row][col]` must match the expected character in order
-
-## Manual QA Checklist
-
-1. Test on desktop and mobile width.
-2. Drag-select horizontal and vertical phrases.
-3. Use the reveal icon (`⌖`) on unfound words and confirm temporary hint highlight.
-4. Confirm found state in both grid and sidebar (found words hide reveal button).
-5. Verify no runtime errors in browser console.
-
-## Contributing
-
-- Keep changes scoped and focused.
-- Use conventional commits, e.g. `fix(data): correct word coordinates`.
-- For UI changes, include screenshots/GIFs in pull requests.
+## Notes
+The puzzle data is intentionally explicit rather than generated at runtime, which makes classroom behavior predictable and easier to maintain.
